@@ -1,0 +1,486 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Анализ нагрузки</title>
+<style>
+:root{
+  --bg:#12161C; --panel:#1A2028; --panel-2:#1F2A3D; --line:#2A333F; --line-2:#3A4553;
+  --text:#E6EAF0; --muted:#A3AFBC; --accent:#7AA2FF; --on-accent:#0B1220;
+  --ok:#4ADE80; --warn:#F5A524; --bad:#F87171; --off:#6B7785;
+  --mono:Consolas,"Cascadia Mono","DejaVu Sans Mono",monospace;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--text);font:14px/1.45 "Segoe UI",system-ui,-apple-system,"DejaVu Sans",sans-serif}
+h1,h2,h3{margin:0}
+button{font:inherit;color:inherit;cursor:pointer}
+button:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+button:disabled{cursor:not-allowed;opacity:.55}
+header{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;padding:16px 24px;border-bottom:1px solid var(--line)}
+header h1{font-size:20px;font-weight:600}
+.sub{font-size:13px;color:var(--muted)}
+.head-right{display:flex;flex-wrap:wrap;align-items:center;gap:12px}
+.btn{min-height:44px;padding:0 16px;border-radius:8px;font-weight:500;background:transparent;border:1px solid var(--line-2)}
+.btn.primary{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+.btn.small{min-height:36px;padding:0 10px;font-size:13px}
+.btn[aria-pressed="true"]{background:var(--panel-2);border-color:var(--accent)}
+.btn.switch{min-width:92px}
+.btn.switch.on{background:var(--accent);border-color:var(--accent);color:var(--on-accent)}
+main{display:flex;flex-direction:column;gap:24px;padding:24px;max-width:1200px;margin:0 auto}
+.label{font-size:13px;font-weight:600;color:var(--muted)}
+.note{font-size:13px;color:var(--muted)}
+.err-text{color:var(--bad);font-size:13px}
+.banner{display:none;margin:16px 24px 0;padding:12px 16px;border:1px solid #7F3B3B;border-radius:10px;color:#FCA5A5}
+.banner.show{display:block}
+.chips{display:flex;flex-wrap:wrap;gap:8px}
+.chip{min-height:36px;padding:0 12px;border-radius:999px;background:transparent;border:1px solid var(--line-2);font-size:13px}
+.chip[aria-pressed="true"]{background:var(--panel-2);border-color:var(--accent)}
+.choice{display:flex;flex-direction:column;gap:6px}
+.choice-row{display:flex;gap:8px;flex-wrap:wrap}
+.choice input{flex:1 1 200px;min-width:0;min-height:44px;padding:0 12px;border-radius:8px;background:var(--bg);color:var(--text);border:1px solid var(--line-2);font:inherit}
+.choice input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.choice input::placeholder{color:var(--muted)}
+.metrics{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+.metric{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:14px;display:flex;flex-direction:column;gap:8px}
+.metric .v{font-family:var(--mono);font-size:24px;font-weight:500}
+.bar{height:6px;border-radius:3px;background:var(--line);overflow:hidden}
+.bar i{display:block;height:100%;border-radius:3px;background:var(--accent)}
+.bar i.warn{background:var(--warn)} .bar i.bad{background:var(--bad)} .bar i.ok{background:var(--ok)}
+.chart-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.chart-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:8px}
+.chart-head h3{font-size:16px;font-weight:600}
+.legend{display:flex;flex-wrap:wrap;gap:16px;font-size:13px;color:#C3C9D4}
+.legend span{display:flex;align-items:center;gap:6px}
+.legend i{display:inline-block;width:14px;height:3px;border-radius:2px}
+.legend .dash-key{width:16px;height:0;border-radius:0;border-top:2px dashed #A3AFBC}
+.legend .band-key{display:inline-block;width:14px;height:10px;border-radius:2px;background:rgba(248,113,113,.4)}
+.plot{display:grid;grid-template-columns:auto minmax(0,1fr);grid-template-rows:200px auto;column-gap:8px;row-gap:4px}
+.plot .yl{display:flex;flex-direction:column;justify-content:space-between;font-family:var(--mono);font-size:12px;color:var(--muted);text-align:right}
+.plot svg{width:100%;height:200px;display:block}
+.plot .xl{grid-column:2;display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+.plot .band{fill:#F87171;fill-opacity:.18}
+.ana-part{display:flex;flex-direction:column;gap:12px}
+.ana-card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:12px}
+.ana-head{display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:8px}
+.ana-head h3{font-size:16px;font-weight:600}
+.ana-answer{border:1px solid var(--line-2);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:10px;background:#161B22}
+.ana-answer .h{font-size:17px;font-weight:600;line-height:1.4}
+.ana-answer ul{margin:0;padding-left:20px;display:flex;flex-direction:column;gap:4px}
+.ana-answer .adv{border-left:3px solid var(--accent);padding:6px 12px;background:var(--panel-2);border-radius:6px}
+.ana-busy{display:flex;align-items:center;gap:10px;color:var(--muted);padding:6px 0}
+.spin{width:16px;height:16px;border-radius:50%;border:2px solid var(--line-2);border-top-color:var(--accent);animation:spin 1s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+@media (prefers-reduced-motion:reduce){.spin{animation:none}}
+.spikes{display:flex;flex-direction:column;gap:6px}
+.spike{display:grid;grid-template-columns:auto minmax(0,1fr);gap:4px 10px;align-items:baseline;padding:8px 10px;border-radius:8px;background:#1E1A1D;border:1px solid #3A2A2E}
+.spike .tm{font-family:var(--mono);font-size:12px;color:#FCA5A5}
+.spike .who{grid-column:2;font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+.tops{display:grid;grid-template-columns:repeat(auto-fit,minmax(min(100%,280px),1fr));gap:10px}
+.top-box{border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:flex;flex-direction:column;gap:6px}
+.top-row{display:flex;justify-content:space-between;gap:8px;font-size:13px}
+.top-row .n{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.top-row .v{font-family:var(--mono);color:var(--muted);white-space:nowrap}
+.tbl-wrap{max-height:460px;overflow:auto;border:1px solid var(--line);border-radius:8px}
+table.data{width:100%;border-collapse:collapse;font-size:13px}
+table.data th{position:sticky;top:0;background:#202833;text-align:left;font-weight:600;color:var(--muted);padding:8px 12px;border-bottom:1px solid var(--line)}
+table.data td{padding:7px 12px;border-bottom:1px solid #262E38;vertical-align:top}
+table.data tr:last-child td{border-bottom:0}
+table.data td.r,table.data th.r{text-align:right;white-space:nowrap;font-family:var(--mono)}
+table.data td.name{overflow-wrap:anywhere;min-width:180px}
+.tag{display:inline-block;padding:2px 8px;border-radius:999px;background:var(--panel-2);border:1px solid var(--line-2);font-size:12px;white-space:nowrap}
+.hint-card{background:var(--panel);border:1px dashed var(--accent);border-radius:12px;padding:16px;display:flex;flex-direction:column;gap:10px}
+.log{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:8px 16px}
+.row{display:flex;gap:16px;padding:10px 0;border-bottom:1px solid #262E38}
+.row:last-child{border-bottom:0}
+.row .t{font-family:var(--mono);font-size:12px;color:var(--muted);flex:0 0 64px;padding-top:2px}
+.row .m{flex:1;min-width:0;overflow-wrap:anywhere}
+.row.warn .m{color:var(--warn)}
+.row .src{color:var(--muted)}
+.set-row{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px 16px;padding:8px 0;border-bottom:1px solid #262E38}
+.set-row:last-of-type{border-bottom:0}
+.set-row .li-text{flex:1 1 240px;min-width:0;display:flex;flex-direction:column}
+.set-num{display:flex;align-items:center;gap:8px}
+.set-num input{width:110px;min-height:44px;padding:0 10px;border-radius:8px;background:var(--bg);color:var(--text);border:1px solid var(--line-2);font:inherit;font-family:var(--mono)}
+.set-text input{width:min(320px,60vw);min-height:44px;padding:0 10px;border-radius:8px;background:var(--bg);color:var(--text);border:1px solid var(--line-2);font:inherit}
+.set-num input:focus-visible,.set-text input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+dialog#dlg{width:min(680px,calc(100vw - 32px));max-height:calc(100vh - 48px);padding:0;border:1px solid var(--line-2);border-radius:14px;background:var(--panel);color:var(--text)}
+dialog#dlg::backdrop{background:rgba(5,8,12,.7)}
+.dlg{display:flex;flex-direction:column;gap:14px;padding:20px;overflow:auto}
+.dlg-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px}
+.dlg-head h2{font-size:18px;font-weight:600;margin-bottom:4px}
+.key-box{border:1px solid var(--line-2);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:#161B22}
+.key-box .li-text{display:flex;flex-direction:column;gap:2px}
+.key-box .li-text .label{margin-bottom:2px}
+</style>
+</head>
+<body>
+<header>
+  <div>
+    <h1>Анализ нагрузки</h1>
+    <div class="sub" id="head-sub">Что грузит этот ПК и почему</div>
+  </div>
+  <div class="head-right">
+    <span class="tag" id="key-tag"></span>
+    <button class="btn" type="button" id="open-settings">Настройки</button>
+  </div>
+</header>
+<div class="banner" id="banner" role="alert">Нет связи с приложением. Возможно, оно закрыто: запустите run.bat.</div>
+<dialog id="dlg" aria-labelledby="dlg-title"></dialog>
+<main id="blocks"></main>
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+// Все данные выводим через textContent: имена программ и ответы модели не должны становиться разметкой.
+function el(tag, props, ...kids) {
+  const node = document.createElement(tag);
+  for (const [k, v] of Object.entries(props || {})) {
+    if (k === "class") node.className = v;
+    else if (k === "text") node.textContent = v;
+    else if (k.startsWith("on")) node.addEventListener(k.slice(2), v);
+    else if (v === true) node.setAttribute(k, "");
+    else if (v !== false && v != null) node.setAttribute(k, v);
+  }
+  for (const kid of kids) if (kid) node.append(kid);
+  return node;
+}
+
+async function api(path, method, body) {
+  const headers = { "X-App-Request": "1" };
+  if (body !== undefined) headers["Content-Type"] = "application/json";
+  const res = await fetch(path, { method: method || "GET", headers, body: body === undefined ? undefined : JSON.stringify(body) });
+  const data = await res.json();
+  if (!res.ok) throw new Error(data.error || res.statusText);
+  return data;
+}
+
+let lastJson = "";
+let pending = null;     // состояние, которое ждёт, пока вы закончите печатать
+let lastState = null;
+let bootId = null;      // приложение перезапустили — перезагружаем страницу
+
+async function act(path, body) {
+  try {
+    apply(await api(path, "POST", body), true);
+    $("banner").classList.remove("show");
+    setTimeout(refresh, 500);
+  } catch (e) {
+    $("banner").textContent = "Ошибка: " + e.message;
+    $("banner").classList.add("show");
+  }
+}
+
+async function refresh() {
+  try {
+    apply(await api("/api/state"));
+    $("banner").classList.remove("show");
+  } catch (e) {
+    $("banner").textContent = "Нет связи с приложением. Возможно, оно закрыто: запустите run.bat.";
+    $("banner").classList.add("show");
+  }
+}
+
+function apply(state, force) {
+  if (bootId && state.boot && state.boot !== bootId) { location.reload(); return; }
+  bootId = state.boot || bootId;
+  const json = JSON.stringify(state);
+  if (json === lastJson) return;
+  const active = document.activeElement;
+  if (!force && active && (active.tagName === "INPUT" || active.tagName === "SELECT")) { pending = state; return; }
+  lastJson = json;
+  pending = null;
+  render(state);
+}
+document.addEventListener("focusout", () => setTimeout(() => { if (pending) apply(pending); }, 0));
+
+// ----- график -----
+
+function svgEl(tag, attrs) {
+  const node = document.createElementNS("http://www.w3.org/2000/svg", tag);
+  for (const [k, v] of Object.entries(attrs || {})) node.setAttribute(k, String(v));
+  return node;
+}
+
+function axisLabel(minutes) {
+  return minutes >= 90 ? "−" + Math.round(minutes / 60 * 10) / 10 + " ч" : "−" + minutes + " мин";
+}
+
+function chartBlock(c) {
+  const lo = Number(c.min) || 0, hi = Number(c.max) || 100, minutes = Number(c.minutes) || 30;
+  const W = 1000, H = 200;
+  const x = (ago) => W * (1 - Math.min(Math.max(Number(ago) || 0, 0), minutes) / minutes);
+  const y = (v) => H * (1 - (Math.min(Math.max(Number(v), lo), hi) - lo) / (hi - lo || 1));
+  const svg = svgEl("svg", { viewBox: "0 0 " + W + " " + H, preserveAspectRatio: "none", role: "img",
+    "aria-label": c.title || "График" });
+  for (const f of [0, 0.5, 1]) {
+    svg.append(svgEl("line", { x1: 0, x2: W, y1: H * f, y2: H * f, stroke: "#262E38", "stroke-width": 1,
+      "vector-effect": "non-scaling-stroke" }));
+  }
+  for (const b of c.bands || []) {
+    const x1 = x(b[0]), x2 = x(b[1]);
+    svg.append(svgEl("rect", { class: "band", x: (x1 - 4).toFixed(1), y: 0, width: Math.max(8, x2 - x1 + 8).toFixed(1), height: H }));
+  }
+  for (const l of c.lines || []) {
+    const v = Number(l.value);
+    if (!(v >= lo && v <= hi)) continue;
+    svg.append(svgEl("line", { x1: 0, x2: W, y1: y(v).toFixed(1), y2: y(v).toFixed(1), stroke: l.color || "#A3AFBC",
+      "stroke-width": 1.5, "stroke-dasharray": "6 5", "stroke-opacity": 0.8, "vector-effect": "non-scaling-stroke" }));
+  }
+  const unit = c.unit || "";
+  const legend = el("div", { class: "legend" });
+  for (const s of c.series || []) {
+    const pts = (s.points || []).filter((p) => p && p[1] !== null && p[1] !== undefined);
+    if (!pts.length) continue;
+    svg.append(svgEl("polyline", { points: pts.map((p) => x(p[0]).toFixed(1) + "," + y(p[1]).toFixed(1)).join(" "),
+      fill: "none", stroke: s.color || "#7AA2FF", "stroke-width": 2.5, "stroke-linejoin": "round",
+      "vector-effect": "non-scaling-stroke" }));
+    const last = pts[pts.length - 1][1];
+    legend.append(el("span", {}, el("i", { style: "background:" + (s.color || "#7AA2FF") }),
+      document.createTextNode(s.name + " " + Math.round(last) + unit)));
+  }
+  return el("div", { class: "chart-card" },
+    el("div", { class: "chart-head" }, el("h3", { text: c.title || "" }), legend,
+      (c.bands || []).length ? el("span", { class: "legend" }, el("span", {}, el("i", { class: "band-key" }),
+        document.createTextNode(c.bands_label || "скачки"))) : null,
+      (c.lines || []).length ? el("span", { class: "legend" }, el("span", {}, el("i", { class: "dash-key" }),
+        document.createTextNode((c.lines_note || "пунктир — порог") + ": " + c.lines.map((l) => l.label).join(", ")))) : null),
+    el("div", { class: "plot" },
+      el("div", { class: "yl" }, el("span", { text: hi + unit }), el("span", { text: Math.round((hi + lo) / 2) + unit }),
+        el("span", { text: lo + unit })),
+      svg,
+      el("div", { class: "xl" }, el("span", { text: axisLabel(minutes) }), el("span", { text: "сейчас" }))));
+}
+
+// ----- блоки -----
+
+function tilesBlock(list) {
+  return el("div", { class: "metrics" }, ...list.map((x) => el("div", { class: "metric" },
+    el("span", { class: "sub", text: x.label }), el("span", { class: "v", text: x.value }),
+    x.pct ? el("div", { class: "bar" }, el("i", { class: x.level || "", style: "width:" + Math.max(0, Math.min(100, Number(x.pct) || 0)) + "%" })) : null,
+    x.sub ? el("span", { class: "sub", text: x.sub }) : null)));
+}
+
+function eventsList(title, rows, whoLabel) {
+  return el("div", { class: "spikes" },
+    el("span", { class: "label", text: title }),
+    ...rows.slice().reverse().map((x) => el("div", { class: "spike" },
+      el("span", { class: "tm", text: x.time }), el("span", { text: x.label + ": " + x.from + " → " + x.to }),
+      el("span", { class: "who", text: whoLabel + x.who }))));
+}
+
+const WINDOWS = [[30, "30 мин"], [60, "1 ч"], [180, "3 ч"], [360, "6 ч"], [720, "12 ч"]];
+
+function windowChips(s) {
+  const max = Math.round((Number(s.history_hours) || 12) * 60);
+  const items = WINDOWS.filter((w) => w[0] <= max);
+  if (!items.some((w) => w[0] === s.window_minutes)) items.push([s.window_minutes, s.window_text]);
+  return el("div", { class: "chips", role: "group", "aria-label": "Отрезок времени" },
+    el("span", { class: "sub", style: "align-self:center", text: "Показывать за:" }),
+    ...items.map((w) => el("button", { class: "chip", type: "button", "aria-pressed": String(w[0] === s.window_minutes),
+      text: w[1], onclick: () => act("/api/window", { value: w[0] }) })));
+}
+
+function askBlock(s) {
+  const ask = (q) => { const v = (q || $("ask").value).trim(); if (v && !s.busy) act("/api/ask", { value: v }); };
+  const disabled = s.busy || !s.ready || !s.key_set;
+  const kids = [
+    el("div", { class: "ana-head" },
+      el("div", {}, el("h3", { text: "Спросить, почему был скачок" }),
+        el("div", { class: "sub", text: "Скачки и виновников считает само приложение, Gemini объясняет их простыми словами за " + s.window_text + "." })),
+      el("span", { class: "tag", text: s.model || "Gemini" })),
+    el("div", { class: "choice" }, el("div", { class: "choice-row" },
+      el("input", { id: "ask", type: "text", maxlength: String(s.limit || 300), autocomplete: "off",
+        placeholder: "Например: что грузило видеокарту в 15:20?", "aria-label": "Вопрос о нагрузке",
+        disabled: disabled, onkeydown: (e) => { if (e.key === "Enter") ask(); } }),
+      el("button", { class: "btn primary", type: "button", text: "Спросить", disabled: disabled, onclick: () => ask() }))),
+    el("div", { class: "chips", role: "group", "aria-label": "Готовые вопросы" },
+      ...(s.examples || []).map((q) => el("button", { class: "chip", type: "button", text: q, disabled: disabled, onclick: () => ask(q) }))),
+  ];
+  if (!s.key_set) kids.push(el("div", { class: "choice-row" },
+    el("div", { class: "note", style: "flex:1 1 240px", text: "Чтобы спрашивать, нужен ключ Gemini. Он хранится только на этом ПК. Всё остальное — графики, скачки, температуры — работает и без ключа." }),
+    el("button", { class: "btn", type: "button", text: "Добавить ключ", onclick: () => showSettings() })));
+  else if (!s.ready) kids.push(el("div", { class: "note", text: "Собираю первые замеры, спросить можно через полминуты." }));
+  if (s.busy) kids.push(el("div", { class: "ana-busy", role: "status" }, el("span", { class: "spin" }), el("span", { text: s.stage || "Думаю…" })));
+  const r = s.last;
+  if (r && !s.busy) {
+    if (r.error) kids.push(el("div", { class: "err-text", role: "alert", text: "Не получилось: " + r.error }));
+    else {
+      const box = el("div", { class: "ana-answer" },
+        el("div", { class: "sub", text: "Вы спросили в " + r.asked_at + ": «" + r.question + "»" }),
+        el("div", { class: "h", text: r.headline }));
+      if ((r.points || []).length) box.append(el("ul", {}, ...r.points.map((p) => el("li", { text: p }))));
+      if (r.advice) box.append(el("div", { class: "adv", text: "Совет: " + r.advice }));
+      if ((r.top || []).length) box.append(el("div", { class: "tops" }, ...r.top.map((t) => el("div", { class: "top-box" },
+        el("span", { class: "label", text: t.label + " · в среднем / пик" }),
+        ...t.rows.map((x) => el("div", {},
+          el("div", { class: "top-row" }, el("span", { class: "n", text: x.name }), el("span", { class: "v", text: x.avg + " / " + x.peak })),
+          el("div", { class: "bar" }, el("i", { style: "width:" + Math.max(3, Math.min(100, Number(x.pct) || 0)) + "%" }))))))));
+      box.append(el("div", { class: "note", text: "Ответ за " + r.seconds + " с" + (r.model_note ? " · " + r.model_note : "") }));
+      box.append(el("div", { class: "choice-row" }, el("button", { class: "btn small", type: "button",
+        text: "Убрать ответ", onclick: () => act("/api/clear") })));
+      kids.push(box);
+    }
+  }
+  return el("div", { class: "ana-card" }, ...kids);
+}
+
+function hintBlock(h) {
+  return el("div", { class: "hint-card" },
+    el("h3", { text: h.title }),
+    el("div", { class: "sub", text: h.text }),
+    el("div", { class: "note", text: h.url }),
+    el("div", { class: "choice-row" },
+      el("button", { class: "btn primary", type: "button", text: "Открыть страницу загрузки",
+        onclick: () => act("/api/open", { page: "lhm" }) }),
+      el("button", { class: "btn", type: "button", text: "Больше не показывать",
+        onclick: () => act("/api/hide_hint") })));
+}
+
+function loadBlock(s) {
+  const kids = [];
+  if ((s.tiles || []).length) kids.push(tilesBlock(s.tiles));
+  if (s.chart && (s.chart.series || []).length) {
+    kids.push(chartBlock(s.chart));
+    if ((s.chart.spikes || []).length) kids.push(eventsList("Скачки за " + s.window_text, s.chart.spikes, "Выросли: "));
+  }
+  return kids.length ? el("div", { class: "ana-part" }, ...kids) : null;
+}
+
+function tempsBlock(t) {
+  const kids = [chartBlock(t.chart)];
+  if ((t.heat || []).length) kids.push(eventsList("Нагрев", t.heat, "Выросла нагрузка: "));
+  if (t.note) kids.push(el("div", { class: "note", text: t.note }));
+  return el("div", { class: "ana-part" }, ...kids);
+}
+
+function powerBlock(pw) {
+  const kids = [tilesBlock(pw.tiles)];
+  for (const c of pw.charts || []) kids.push(chartBlock(c));
+  if ((pw.wear || []).length) kids.push(el("div", { class: "ana-answer" },
+    el("span", { class: "label", text: pw.title || "Износ" }),
+    el("ul", {}, ...pw.wear.map((x) => el("li", { text: x }))),
+    pw.note ? el("div", { class: "note", text: pw.note }) : null));
+  return el("div", { class: "ana-part" }, ...kids);
+}
+
+function nowBlock(s) {
+  return el("div", { class: "tbl-wrap" }, el("table", { class: "data" },
+    el("thead", {}, el("tr", {}, ...["Программа", "CPU", "ОЗУ", "GPU", "Видеопамять"].map((h, i) => el("th", { class: i ? "r" : "", scope: "col", text: h })))),
+    el("tbody", {}, ...s.now.map((x) => el("tr", {},
+      el("td", { class: "name", text: x.name }), el("td", { class: "r", text: x.cpu }), el("td", { class: "r", text: x.ram }),
+      el("td", { class: "r", text: x.gpu }), el("td", { class: "r", text: x.vram }))))));
+}
+
+function statusBlock(s) {
+  const parts = ["Замеров в журнале: " + s.samples, "журнал " + s.history_hours + " ч",
+    "замер каждые " + s.poll_seconds + " с"];
+  const kids = [el("div", { class: "note", text: parts.join(" · ") })];
+  if ((s.gaps || []).length) kids.push(el("div", { class: "note", text: "Чего не видно: " + s.gaps.join("; ") }));
+  if ((s.log || []).length) kids.push(el("div", { class: "log" }, ...s.log.slice(0, 6).map((r) => el("div", { class: "row " + r.level },
+    el("span", { class: "t", text: r.time }), el("span", { class: "m", text: r.message })))));
+  return el("div", { class: "ana-part" }, ...kids);
+}
+
+// ----- настройки -----
+
+let settingsOpen = false;
+
+function showSettings() {
+  settingsOpen = true;
+  renderSettings(lastState);
+  const d = $("dlg");
+  if (!d.open) d.showModal();
+}
+
+function keyBox(s) {
+  const save = () => {
+    const v = $("key-input").value.trim();
+    if (v) { $("key-input").value = ""; act("/api/key", { value: v }); }
+  };
+  return el("div", { class: "key-box" },
+    el("div", { class: "li-text" }, el("label", { class: "label", for: "key-input", text: "Ключ Gemini" }),
+      el("span", { class: "sub", text: s.key_set ? "Ключ сохранён на этом ПК (файл data/secrets.json). Чтобы заменить — впишите новый." : "Без ключа работает всё, кроме ответов ИИ. Ключ бесплатный, берётся в Google AI Studio." })),
+    el("div", { class: "choice-row" },
+      el("input", { id: "key-input", type: "password", autocomplete: "off", spellcheck: "false",
+        placeholder: s.key_set ? "новый ключ" : "вставьте ключ", "aria-label": "Ключ Gemini",
+        onkeydown: (e) => { if (e.key === "Enter") save(); } }),
+      el("button", { class: "btn primary", type: "button", text: "Сохранить", onclick: save })),
+    el("div", { class: "choice-row" },
+      el("button", { class: "btn small", type: "button", text: "Где взять ключ",
+        onclick: () => act("/api/open", { page: "key" }) }),
+      s.key_set ? el("button", { class: "btn small", type: "button", text: "Убрать ключ",
+        onclick: () => act("/api/key", { value: "" }) }) : null));
+}
+
+function settingsForm(fields) {
+  return fields.map((f) => {
+    const id = "set-" + f.key;
+    const text = el("div", { class: "li-text" }, el("label", { for: id, text: f.label }),
+      f.sub ? el("span", { class: "sub", text: f.sub }) : null);
+    let control;
+    if (f.type === "bool") {
+      control = el("button", { id, class: "btn switch" + (f.value ? " on" : ""), type: "button",
+        "aria-pressed": String(!!f.value), text: f.value ? "Вкл" : "Выкл",
+        onclick: () => act("/api/setting", { key: f.key, value: !f.value }) });
+    } else if (f.type === "text") {
+      const input = el("input", { id, type: "text", value: f.value, autocomplete: "off", spellcheck: "false",
+        onkeydown: (e) => { if (e.key === "Enter") input.blur(); } });
+      input.addEventListener("change", () => { if (input.value.trim() && input.value !== f.value) act("/api/setting", { key: f.key, value: input.value }); });
+      control = el("div", { class: "set-text" }, input);
+    } else {
+      const input = el("input", { id, type: "number", inputmode: "numeric", min: f.min, max: f.max, step: 1, value: f.value,
+        onkeydown: (e) => { if (e.key === "Enter") input.blur(); } });
+      input.addEventListener("change", () => { if (input.value !== "" && Number(input.value) !== Number(f.value)) act("/api/setting", { key: f.key, value: input.value }); });
+      control = el("div", { class: "set-num" }, input, el("span", { class: "sub", text: f.unit || "" }));
+    }
+    return el("div", { class: "set-row" }, text, control);
+  });
+}
+
+function renderSettings(s) {
+  const d = $("dlg");
+  if (!settingsOpen || !s || !s.settings) { if (d.open) d.close(); return; }
+  d.replaceChildren(el("div", { class: "dlg" },
+    el("div", { class: "dlg-head" },
+      el("div", {}, el("h2", { id: "dlg-title", text: "Настройки" }),
+        el("div", { class: "sub", text: "Меняются сразу, перезапуск не нужен (кроме порта окна)" })),
+      el("button", { class: "btn small", type: "button", text: "✕", "aria-label": "Закрыть", onclick: () => d.close() })),
+    keyBox(s),
+    el("div", {}, ...settingsForm(s.settings.fields || [])),
+    el("div", { class: "choice-row", style: "justify-content:flex-end" },
+      el("button", { class: "btn primary", type: "button", text: "Готово", onclick: () => d.close() }))));
+}
+
+$("dlg").addEventListener("close", () => { settingsOpen = false; });
+$("open-settings").addEventListener("click", () => showSettings());
+
+// ----- сборка окна -----
+
+function render(s) {
+  lastState = s;
+  $("head-sub").textContent = s.busy ? (s.stage || "Думаю…")
+    : (s.samples ? "Записываю нагрузку · " + s.samples + " замеров за " + s.history_hours + " ч" : "Собираю первые замеры…");
+  $("key-tag").textContent = s.key_set ? "Gemini: ключ есть" : "Gemini: ключа нет";
+  const nodes = [windowChips(s)];
+  if (s.hint) nodes.push(hintBlock(s.hint));
+  nodes.push(askBlock(s));
+  const load = loadBlock(s);
+  if (load) nodes.push(section("Нагрузка и скачки", load));
+  if (s.temps) nodes.push(section("Температуры", tempsBlock(s.temps)));
+  if (s.power) nodes.push(section("Питание видеокарты", powerBlock(s.power)));
+  if ((s.now || []).length) nodes.push(section("Кто больше всех берёт сейчас", nowBlock(s)));
+  nodes.push(section("Как идут дела", statusBlock(s)));
+  renderSettings(s);
+  $("blocks").replaceChildren(...nodes);
+}
+
+function section(title, body) {
+  return el("section", {}, el("h2", { class: "label", style: "margin-bottom:12px", text: title }), body);
+}
+
+refresh();
+setInterval(refresh, 2000);
+</script>
+</body>
+</html>

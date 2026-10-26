@@ -1,0 +1,27 @@
+# Что НЕ загружать на GitHub
+
+# Ключ Gemini и любые другие секреты — только на этом ПК
+data/secrets.json
+config/secrets.*
+*.env
+!*.env.example
+*.key
+*.pem
+
+# Журнал нагрузки и состояние приложения
+data/
+*.log
+logs/
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+.pytest_cache/
+
+# Временное и системное
+*.tmp
+Thumbs.db
+desktop.ini
+.DS_Store

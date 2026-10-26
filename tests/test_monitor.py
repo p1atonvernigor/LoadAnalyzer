@@ -273,6 +273,23 @@ class AskTest(unittest.TestCase):
         self.m.clear_answer()
         self.assertIsNone(self.m.last)
 
+    def test_fallback_model_is_shown(self):
+        self.m.secrets.set_key(KEY)
+        self.m.ask_model = lambda *a, **kw: {"text": "Коротко: всё спокойно.", "model": "gemini-flash-lite-latest",
+                                             "tries": 4}
+        r = self.m.ask("почему?")
+        self.assertEqual(r["headline"], "Всё спокойно.")
+        self.assertIn("gemini-flash-lite-latest", r["model_note"])
+        self.assertIn("запасная", r["model_note"])
+
+    def test_fallback_setting_goes_to_model(self):
+        self.m.secrets.set_key(KEY)
+        self.m.ask("почему?")
+        kw = self.m.ask_model.calls[0]["kw"]
+        self.assertEqual(kw["fallback"], "gemini-flash-lite-latest")
+        self.assertEqual(kw["timeout"], 180)
+        self.assertTrue(callable(kw["on_retry"]))
+
     def test_long_window_goes_to_model(self):
         self.m.secrets.set_key(KEY)
         self.m.settings.values["window_minutes"] = 720

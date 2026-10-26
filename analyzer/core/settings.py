@@ -16,8 +16,9 @@ DEFAULTS = {
     "window_minutes": 30,             # какой отрезок показывать на графиках и отдавать ИИ
     # ИИ (Gemini). Ключ — в data/secrets.json, здесь только имя модели и пределы.
     "gemini_model": "gemini-flash-latest",
+    "gemini_fallback_model": "gemini-flash-lite-latest",  # если основная перегружена; пусто — без запасной
     "gemini_max_tokens": 1200,        # предел длины ответа
-    "gemini_timeout_seconds": 120,    # сколько ждать ответа
+    "gemini_timeout_seconds": 180,    # сколько всего ждать ответа (вместе с повторами при перегрузке)
     "gemini_thinking": False,         # False = просить модель не «размышлять» (ответ быстрее и дешевле)
     # датчики
     "lhm_url": "http://localhost:8085/data.json",  # LibreHardwareMonitor: температура процессора
@@ -39,7 +40,7 @@ LIMITS = {
     "ui_port": (1024, 65535),
 }
 
-TEXT_KEYS = ("gemini_model", "lhm_url")
+TEXT_KEYS = ("gemini_model", "gemini_fallback_model", "lhm_url")
 BOOL_KEYS = ("open_window_on_start", "gemini_thinking")
 
 

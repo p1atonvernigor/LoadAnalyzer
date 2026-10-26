@@ -65,7 +65,7 @@ class Monitor:
         self.power = gpu_power.PowerReader(lhm_url=settings.get("lhm_url"))
         self.read_power = self.power.read
         self.read_lhm = sensors.read_lhm
-        self.ask_model = gemini.ask
+        self.ask_model = gemini.ask_full
         self.key = lambda: ""            # ставит приложение (secrets.key)
         self._names = None
         self._info = {}
@@ -230,14 +230,26 @@ class Monitor:
             info["cores"] = getattr(self.apps, "_cores", None)
             text = spikes.digest(samples, episodes, events, marks, info)
             self.stage = "Gemini разбирает журнал…"
+
+            def retry(model, attempt, fallback):
+                self.stage = ("Gemini перегружен, спрашиваю запасную модель %s…" % model if fallback and attempt == 1
+                              else "Gemini перегружен, пробую ещё раз (%d из %d)…" % (attempt, gemini.RETRIES))
+
             reply = self.ask_model(self.key(), spikes.system_prompt(minutes),
                                    text + "\n\nВопрос владельца: " + question,
                                    model=self.settings.get("gemini_model"),
+                                   fallback=self.settings.get("gemini_fallback_model", ""),
                                    max_tokens=int(self.settings.get("gemini_max_tokens", 1200)),
                                    timeout=int(self.settings.get("gemini_timeout_seconds", 120)),
-                                   thinking=bool(self.settings.get("gemini_thinking", False)))
+                                   thinking=bool(self.settings.get("gemini_thinking", False)),
+                                   on_retry=retry)
+            used = self.settings.get("gemini_model")
+            if isinstance(reply, dict):
+                reply, used = reply.get("text", ""), reply.get("model") or used
             result.update(spikes.parse_answer(reply))
-            result["model_note"] = "ответил %s" % self.settings.get("gemini_model")
+            result["model_note"] = "ответил %s" % used
+            if used != self.settings.get("gemini_model"):
+                result["model_note"] += " (запасная: основная была перегружена)"
         except Exception as exc:
             result["error"] = str(exc)
             self.log("ответ на вопрос не получился: %s" % exc, "warn")

@@ -39,6 +39,104 @@ def http_error(code, message=""):
     return urllib.error.HTTPError("http://x", code, "err", {}, io.BytesIO(body))
 
 
+class Clock:
+    """Подмена времени: паузы не ждут по-настоящему, но время идёт."""
+
+    def __init__(self):
+        self.now, self.pauses = 0.0, []
+
+    def __call__(self):
+        return self.now
+
+    def sleep(self, seconds):
+        self.pauses.append(seconds)
+        self.now += seconds
+
+
+class BusyTest(unittest.TestCase):
+    """26.10: у Google была перегрузка Flash — 503 «high demand» и зависания до тайм-аута.
+    Раньше вопрос сразу падал с «The read operation timed out»."""
+
+    def ask(self, req, **kw):
+        clock = Clock()
+        kw.setdefault("timeout", 180)
+        got = gemini.ask_full(KEY, "s", "q", request=req, sleep=clock.sleep, clock=clock, **kw)
+        return got, clock
+
+    def test_retries_on_503_and_succeeds(self):
+        req = FakeRequest(http_error(503, "high demand"), http_error(503), reply("ответ"))
+        got, clock = self.ask(req)
+        self.assertEqual(got, {"text": "ответ", "model": "gemini-flash-latest", "tries": 3})
+        self.assertEqual(clock.pauses, [2, 5])
+        self.assertTrue(all(c["url"] == gemini.BASE % "gemini-flash-latest" for c in req.calls))
+
+    def test_timeout_is_retried(self):
+        req = FakeRequest(TimeoutError("The read operation timed out"), reply("ответ"))
+        got, _ = self.ask(req)
+        self.assertEqual(got["tries"], 2)
+        req = FakeRequest(urllib.error.URLError(TimeoutError("timed out")), reply("ответ"))
+        self.assertEqual(self.ask(req)[0]["text"], "ответ")
+
+    def test_fallback_model_when_main_is_busy(self):
+        req = FakeRequest(http_error(503), http_error(503), http_error(503), reply("ответ"))
+        notes = []
+        got, _ = self.ask(req, on_retry=lambda m, a, f: notes.append((m, a, f)))
+        self.assertEqual(got["model"], "gemini-flash-lite-latest")
+        self.assertEqual(req.calls[-1]["url"], gemini.BASE % "gemini-flash-lite-latest")
+        self.assertIn(("gemini-flash-lite-latest", 1, True), notes)
+
+    def test_fallback_when_main_model_missing(self):
+        req = FakeRequest(http_error(404, "model not found"), reply("ответ"))
+        got, _ = self.ask(req)
+        self.assertEqual(got["model"], "gemini-flash-lite-latest")
+
+    def test_all_busy_gives_plain_message(self):
+        req = FakeRequest(*[http_error(503)] * 6)
+        with self.assertRaises(gemini.GeminiError) as e:
+            self.ask(req)
+        self.assertIn("перегружен", str(e.exception))
+        self.assertIn("6 раз и запасную модель", str(e.exception))
+        self.assertEqual(len(req.calls), 6)
+
+    def test_wrong_key_is_not_retried(self):
+        req = FakeRequest(*[http_error(403, "API key not valid")] * 6)
+        with self.assertRaises(gemini.GeminiError) as e:
+            self.ask(req)
+        self.assertIn("ключ Gemini не подошёл", str(e.exception))
+        self.assertEqual(len(req.calls), 1)
+
+    def test_total_time_is_limited(self):
+        """Каждая попытка ждёт не больше TRY_TIMEOUT, а всё вместе — не дольше timeout."""
+        clock = Clock()
+
+        def slow(url, body, key, timeout):
+            self.assertLessEqual(timeout, gemini.TRY_TIMEOUT)
+            clock.now += timeout
+            raise TimeoutError("The read operation timed out")
+
+        with self.assertRaises(gemini.GeminiError):
+            gemini.ask_full(KEY, "s", "q", timeout=100, request=slow, sleep=clock.sleep, clock=clock)
+        self.assertLessEqual(clock.now, 100)
+
+    def test_system_proxy_is_used(self):
+        """С VPN или прокси Windows Gemini должен идти через них — ProxyHandler({}) их отключал."""
+        import urllib.request
+        made = []
+        real = urllib.request.build_opener
+
+        def fake_build(*handlers):
+            made.append(handlers)
+            raise OSError("стоп")
+
+        urllib.request.build_opener = fake_build
+        try:
+            with self.assertRaises(OSError):
+                gemini._request("http://x", {}, KEY, 5)
+        finally:
+            urllib.request.build_opener = real
+        self.assertEqual(made, [()])
+
+
 class GeminiTest(unittest.TestCase):
     def test_asks_and_returns_text(self):
         req = FakeRequest(reply("Коротко: видеопамять заняла игра."))
@@ -88,11 +186,8 @@ class GeminiTest(unittest.TestCase):
             gemini.ask(KEY, "s", "q", request=FakeRequest(http_error(429)))
         self.assertIn("предел запросов", str(e.exception))
         with self.assertRaises(gemini.GeminiError) as e:
-            gemini.ask(KEY, "s", "q", request=FakeRequest(http_error(404, "model not found")))
+            gemini.ask(KEY, "s", "q", fallback="", request=FakeRequest(http_error(404, "model not found")))
         self.assertIn("такой модели нет", str(e.exception))
-        with self.assertRaises(gemini.GeminiError) as e:
-            gemini.ask(KEY, "s", "q", request=FakeRequest(http_error(503)))
-        self.assertIn("не отвечает", str(e.exception))
 
     def test_key_is_never_shown_in_error(self):
         req = FakeRequest(http_error(403, "key %s is blocked" % KEY), http_error(403, "key %s is blocked" % KEY))
